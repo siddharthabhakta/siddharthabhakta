@@ -1,50 +1,98 @@
 #include <iostream>
 #include <fstream>
+#include <vector>
+#include <string>
+#include <memory>
 #include "rapidxml.hpp"
-#include "rapidxml_utils.hpp"
 
 using namespace rapidxml;
 
-int readxml() {
-    // Load the XML file
-    std::ifstream file("sid.xml");
+// Define the structure for an attribute
+struct Attribute {
+    std::string name;
+    std::string value;
+};
+
+// Define the structure for a node
+struct Node {
+    std::string name;
+    std::string value;
+    std::vector<Attribute> attributes;
+    std::vector<std::shared_ptr<Node>> children;
+};
+
+// Function to create the tree structure from the XML node
+std::shared_ptr<Node> CreateTree(xml_node<>* xmlNode) {
+    auto node = std::make_shared<Node>();
+    node->name = xmlNode->name();
+    if (xmlNode->value()) {
+        node->value = xmlNode->value();
+    }
+
+    for (xml_attribute<>* attr = xmlNode->first_attribute(); attr; attr = attr->next_attribute()) {
+        Attribute attribute;
+        attribute.name = attr->name();
+        attribute.value = attr->value();
+        node->attributes.push_back(attribute);
+    }
+
+    for (xml_node<>* child = xmlNode->first_node(); child; child = child->next_sibling()) {
+        node->children.push_back(CreateTree(child));
+    }
+
+    return node;
+}
+
+// Function to display the tree structure
+void DisplayTree(const std::shared_ptr<Node>& node, int depth = 0) {
+    for (int i = 0; i < depth; ++i) std::cout << "  ";
+    std::cout << node->name;
+
+    for (const auto& attr : node->attributes) {
+        std::cout << " [" << attr.name << "=" << attr.value << "]";
+    }
+
+    if (!node->value.empty()) {
+        std::cout << ": " << node->value;
+    }
+
+    std::cout << std::endl;
+
+    for (const auto& child : node->children) {
+        DisplayTree(child, depth + 1);
+    }
+}
+
+int main() {
+    // Load the XML file into a vector of chars
+    std::ifstream file("measDataCollection.xml");
     std::vector<char> buffer((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    buffer.push_back('\0');
+    buffer.push_back('\0'); // Null-terminate the buffer
 
     // Parse the XML document
     xml_document<> doc;
-    doc.parse<0>(&buffer[0]);
+    try {
+        doc.parse<0>(&buffer[0]);
+    }
+    catch (const rapidxml::parse_error& e) {
+        std::cerr << "XML parse error: " << e.what() << std::endl;
+        return 1;
+    }
 
     // Get the root node
     xml_node<>* root = doc.first_node("measCollecFile");
 
-    // Display file header
-    std::cout << "File Header:" << std::endl;
-    xml_node<>* fileHeader = root->first_node("fileHeader");
-    std::cout << "File Format Version: " << fileHeader->first_attribute("fileFormatVersion")->value() << std::endl;
-    std::cout << "Vendor Name: " << fileHeader->first_attribute("vendorName")->value() << std::endl;
-    std::cout << "DN Prefix: " << fileHeader->first_attribute("dnPrefix")->value() << std::endl;
-
-    // Display measurement data
-    std::cout << "\nMeasurement Data:" << std::endl;
-    xml_node<>* measData = root->first_node("measData");
-    xml_node<>* measInfo = measData->first_node("measInfo");
-    for (xml_node<>* measValue = measInfo->first_node("measValue"); measValue; measValue = measValue->next_sibling("measValue")) {
-        std::cout << "Measured Object LDN: " << measValue->first_attribute("measObjLdn")->value() << std::endl;
-        for (xml_node<>* r = measValue->first_node("r"); r; r = r->next_sibling("r")) {
-            std::cout << "Measurement Type: " << r->first_attribute("p")->value() << ", Value: " << r->value() << std::endl;
-        }
-        // Check if suspect attribute exists
-        xml_node<>* suspect = measValue->first_node("suspect");
-        if (suspect) {
-            std::cout << "Suspect: " << suspect->value() << std::endl;
-        }
+    if (!root) {
+        std::cerr << "No root node found!" << std::endl;
+        return 1;
     }
 
-    // Display file footer
-    std::cout << "\nFile Footer:" << std::endl;
-    xml_node<>* fileFooter = root->first_node("fileFooter");
-    std::cout << "Measurement Collection End Time: " << fileFooter->first_node("measCollec")->first_attribute("endTime")->value() << std::endl;
+    // Create the tree structure
+    std::shared_ptr<Node> tree = CreateTree(root);
+
+    // Display the tree structure
+    std::cout << "XML Tree Structure:" << std::endl;
+    DisplayTree(tree);
 
     return 0;
 }
